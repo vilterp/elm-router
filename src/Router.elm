@@ -1,118 +1,190 @@
-module Router where
-{-| Simple Router library for performing operations based on a list of string
-routes. This is particularly useful for routing pages in single page applications
-where the given list of strings are list of url paths.
+module Router
+    ( Router, Path
+    , match
+    , int, string, literal
+    , root, route1, route2, route3, route4
+    ) where
 
+{-| Match URL paths, turning them into values representing the different pages
+of your app.
 
-# Types
-@docs Route, Router
+# Match
+@docs match, Router, Path
 
-# Route Matching
-@docs match, (:->)
+# Segments
+@docs int, string, literal
 
-# Useful Helper
-@docs matchPrefix
+# Routes
+@docs root, route1, route2, route3, route4
 -}
 
-import String exposing (startsWith, dropLeft, length)
+import String
+import Debug
 
-{-| A Route is a function from a string to some value or computation.
--}
-type alias Route a = String -> a
-
-{-| A Router is a tuple containing a string and its associated route
--}
-type alias Router a = (String, Route a)
+{-|-}
+type alias Router a =
+  List (Route a)
 
 
-{-| `match` allows you to select an appropriate route depending on the
-given input string. `match` takes a list of routers and a default route,
-which acts as a catch-all and returns a route. Returning a route allows
-for nested routes.
-
-Example:
-
-    mainRoute : Route Html
-    mainRoute = match
-      [ "/"           :-> displayHomePage
-      , "/index.html" :-> displayHomePage
-      , "/blog"       :-> blogRoute
-      , "/contact"    :-> displayContactsPage
-      ] display404Page
-
-    blogRoute : Route Html
-    blogRoute = match
-      [ "/"             :-> displayBlogPostListing
-      , "/entry1.html"  :-> displayEntry1
-      , "/entry2.html"  :-> displayEntry2
-      ] display404Page
+{-|-}
+type alias Path =
+  String
 
 
-In some cases, it important to understand how `match` works. Suppose you have
-the input path "/users/4873/profile.html" and there is a router that matches
-"/users" with an associated route `usersRoute`. The `usersRoute` function will
-get called with "/4873/profile.html" as a parameter. This means that `match`
-will strip away the string it has matched from the input string before passing
-it onto the route. `match` will also match routes in the order you have stated
-them. This means that if you have the following route:
+{-|-}
+match : Router a -> Path -> Maybe a
+match router path =
+  let
+    withoutLeadingSlash =
+      case String.uncons path of
+        Nothing ->
+          Debug.crash "path must have leading slash"
 
-    myRoute = match
-      [ "/user"   :-> userRoute
-      , "/users"  :-> displayUserListing
-      ] display404Page
+        Just (_, without) ->
+          without
 
-There is no way for `displayUserListing` to ever be called. Say you pass in
-"/users.html", then this will be matched by "/user" which will pass "s.html"
-to `userRoute`. To solve this, you may wish to reverse the order of the routes
-as follows:
+  in
+    case String.split "/" withoutLeadingSlash of
+      [""] ->
+        firstJust [] router
 
-    myRoute = match
-      [ "/users"  :-> displayUserListing
-      , "/user"   :-> userRoute
-      ] display404Page
+      segments ->
+        firstJust segments router
 
-And now things will work as intended.
 
-You may notice that in the first example, I use "/" as a route at the very top.
-This is because `match` special cases "/" and the empty string due to their
-prevalence.
--}
-match : List (Router a) -> Route a -> Route a
-match routers defaultRoute url = case routers of
-  [] -> defaultRoute url
-  (prefix, route) :: rs ->
-    if
-      prefix == "" || prefix == "/"
-    then
-      if
-        url == prefix
-      then
-        route url
-      else
-        match rs defaultRoute url
-    else
-      case matchPrefix prefix url of
-        Just value -> route value
-        Nothing    -> match rs defaultRoute url
+firstJust : a -> List (a -> Maybe b) -> Maybe b
+firstJust input list =
+  -- is there an HOF for this?
+  case list of
+    [] ->
+      Nothing
 
-{-| Takes a reference string and a string to match and returns the second string
-stripped of the matched reference string. Used to implement `match`.
+    (f::fs) ->
+      case f input of
+        Just val ->
+          Just val
 
-    matchPrefix "he" "hello" === Just "llo"
+        Nothing ->
+          firstJust input fs
 
-    matchPrefix "yo" "halo" === Nothing
--}
-matchPrefix : String -> String -> Maybe String
-matchPrefix prefix string =
-  if
-    startsWith prefix string
-  then
-    Just <| dropLeft (length prefix) string
+
+-- SEGMENTS
+
+{-|-}
+type alias Segment a =
+  String -> Maybe a
+
+
+{-|-}
+int : Segment Int
+int input =
+  input |> String.toInt |> Result.toMaybe
+
+
+{-|-}
+string : Segment String
+string =
+  Just
+
+
+{-|-}
+literal : String -> Segment String
+literal expected input =
+  if expected == input then
+    Just expected
   else
     Nothing
 
-{-| Operator to offer easy-to-read DSL for matching routes. This is an alias
-for the `(,)` tuple constructor function.
--}
-(:->) : String -> Route a -> Router a
-(:->) = (,)
+
+-- ROUTES
+
+
+{-|-}
+type alias Route a =
+  List String -> Maybe a
+
+
+{-|-}
+root : value -> Route value
+root value pieces =
+  case pieces of
+    [] ->
+      Just value
+
+    _ ->
+      Nothing
+
+
+{-|-}
+route1 : (a -> value) -> Segment a -> Route value
+route1 fun segment pieces =
+  case pieces of
+    [piece] ->
+      piece |> segment |> Maybe.map fun
+
+    _ ->
+      Nothing
+
+
+{-|-}
+route2 : (a -> b -> value) -> Segment a -> Segment b -> Route value
+route2 fun segment1 segment2 pieces =
+  case pieces of
+    [piece1, piece2] ->
+      case (segment1 piece1, segment2 piece2) of
+        (Just res1, Just res2) ->
+          Just (fun res1 res2)
+
+        _ ->
+          Nothing
+
+    _ ->
+      Nothing
+
+
+{-|-}
+route3 : (a -> b -> c -> value) -> Segment a -> Segment b -> Segment c -> Route value
+route3 fun segment1 segment2 segment3 pieces =
+  case pieces of
+    [piece1, piece2, piece3] ->
+      case (segment1 piece1, segment2 piece2, segment3 piece3) of
+        (Just res1, Just res2, Just res3) ->
+          Just (fun res1 res2 res3)
+
+        _ ->
+          Nothing
+
+    _ ->
+      Nothing
+
+
+{-|-}
+route4 : (a -> b -> c -> d -> value) -> Segment a -> Segment b -> Segment c -> Segment d -> Route value
+route4 fun segment1 segment2 segment3 segment4 pieces =
+  case pieces of
+    [piece1, piece2, piece3, piece4] ->
+      case (segment1 piece1, segment2 piece2, segment3 piece3, segment4 piece4) of
+        (Just res1, Just res2, Just res3, Just res4) ->
+          Just (fun res1 res2 res3 res4)
+
+        _ ->
+          Nothing
+
+    _ ->
+      Nothing
+
+
+{-|-}
+route5 : (a -> b -> c -> d -> e -> value) -> Segment a -> Segment b -> Segment c -> Segment d -> Segment e -> Route value
+route5 fun segment1 segment2 segment3 segment4 segment5 pieces =
+  case pieces of
+    [piece1, piece2, piece3, piece4, piece5] ->
+      case (segment1 piece1, segment2 piece2, segment3 piece3, segment4 piece4, segment5 piece5) of
+        (Just res1, Just res2, Just res3, Just res4, Just res5) ->
+          Just (fun res1 res2 res3 res4 res5)
+
+        _ ->
+          Nothing
+
+    _ ->
+      Nothing
